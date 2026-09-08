@@ -230,11 +230,11 @@ final class AppUpdater {
             let request = prepared.transaction.appendingPathComponent("request.json")
             try JSONEncoder().encode(config).write(to: request, options: .atomic)
             try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: request.path)
-            guard let currentExecutable = Bundle.main.executableURL else { throw ReleaseUpdateError.invalid("The running app could not be located.") }
-            let helper = prepared.transaction.appendingPathComponent("PoemDesktopUpdateHelper")
-            // Only our currently running, trusted executable is copied and started here.
-            try fm.copyItem(at: currentExecutable, to: helper)
-            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+            // Keep the complete signed bundle: a detached app executable loses
+            // access to its sealed Info.plist and is rejected by macOS at launch.
+            let helperBundle = prepared.transaction.appendingPathComponent("Updater Helper.app", isDirectory: true)
+            try fm.copyItem(at: prepared.current, to: helperBundle)
+            let helper = helperBundle.appendingPathComponent("Contents/MacOS/PoemDesktop")
             let process = Process()
             process.executableURL = helper
             process.arguments = ["--update-helper", prepared.transaction.path]
@@ -283,7 +283,7 @@ final class AppUpdater {
             do {
                 // Reauthenticate at its final path immediately before it may execute.
                 _ = try validateCandidate(at: current, expectedTag: config.version, currentVersion: config.previousVersion)
-                var launch = ["-n", current.path, "--args", "--update-transaction", transaction.path, "--update-token", config.nonce]
+                var launch = ["-g", "-n", current.path, "--args", "--update-transaction", transaction.path, "--update-token", config.nonce]
                 if config.loginEnabled { launch.append("--enable-login") }
                 try run("/usr/bin/open", launch)
                 let receipt = transaction.appendingPathComponent("launch-receipt")
@@ -304,7 +304,7 @@ final class AppUpdater {
                 }
                 try exchange(candidate, current)
                 exchanged = false
-                var launch = ["-n", current.path]
+                var launch = ["-g", "-n", current.path]
                 if config.loginEnabled { launch += ["--args", "--enable-login"] }
                 try? run("/usr/bin/open", launch)
                 handledRelaunch = true
@@ -318,7 +318,7 @@ final class AppUpdater {
                 let current = URL(fileURLWithPath: config.currentPath)
                 if (try? executableDigest(current)) == config.previousExecutableDigest,
                    (try? readInfo(current)["CFBundleIdentifier"] as? String) == "local.poemdesktop.app" {
-                    var launch = ["-n", current.path]
+                    var launch = ["-g", "-n", current.path]
                     if config.loginEnabled { launch += ["--args", "--enable-login"] }
                     try? run("/usr/bin/open", launch)
                 }
