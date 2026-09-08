@@ -40,14 +40,15 @@ final class PoemView: NSView {
             frame.minX >= area.minX - 0.01 && frame.maxX <= area.maxX + 0.01 &&
                 frame.minY >= area.minY - 0.01 && frame.maxY <= area.maxY + 0.01
         }
-        let headerFits = layout.map {
-            [$0.header.titleRect, $0.header.authorRect, $0.header.sourceRect].map {
-                Self.scaled($0, by: scale)
-            }.allSatisfy {
-                $0.minX >= 0 && $0.maxX <= bounds.width + 0.01 &&
-                    $0.minY >= 0 && $0.maxY <= bounds.height + 0.01
+        let headerFits: Bool
+        if let layout {
+            let headerRects: [NSRect] = [layout.header.titleRect, layout.header.authorRect, layout.header.sourceRect]
+            headerFits = headerRects.allSatisfy { rect in
+                let frame = Self.scaled(rect, by: scale)
+                return frame.minX >= 0 && frame.maxX <= bounds.width + 0.01 &&
+                    frame.minY >= 0 && frame.maxY <= bounds.height + 0.01
             }
-        } ?? (poem == nil)
+        } else { headerFits = poem == nil }
         let renderedLines = layout?.lines.map(\.string) ?? []
         return LayoutDiagnostics(
             pageCount: 1,
