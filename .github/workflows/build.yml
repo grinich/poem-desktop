@@ -1,0 +1,27 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test parser, cache, and update validation
+        run: swift test --disable-sandbox
+      - name: Build universal macOS app
+        run: ./scripts/build.sh
+      - name: Package development build
+        run: ditto -c -k --sequesterRsrc --keepParent 'dist/Poem Desktop.app' dist/PoemDesktop-development.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PoemDesktop-development
+          path: dist/PoemDesktop-development.zip
+          retention-days: 7

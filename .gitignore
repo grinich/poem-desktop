@@ -1,0 +1,10 @@
+.build/
+dist/
+test-output/
+.DS_Store
+Resources/IconConcepts/
+.env
+.env.*
+*.p8
+*.p12
+*.keychain-db
