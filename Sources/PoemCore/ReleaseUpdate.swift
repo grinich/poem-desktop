@@ -90,7 +90,8 @@ public struct ReleaseUpdate: Sendable {
         }
         // GitHub redirects the repository-scoped asset URL onto its signed CDN URL.
         return url.host == "release-assets.githubusercontent.com" &&
-            url.path.hasPrefix("/github-production-release-asset-")
+            (url.path.hasPrefix("/github-production-release-asset/") ||
+             url.path.hasPrefix("/github-production-release-asset-"))
     }
 }
 

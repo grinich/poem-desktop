@@ -39,6 +39,8 @@ final class ReleaseUpdateTests: XCTestCase {
         ]
         for url in urls { XCTAssertThrowsError(try ReleaseUpdate(data: release(url: url))) }
         XCTAssertTrue(ReleaseUpdate.isAllowedDownloadURL(URL(string: "https://release-assets.githubusercontent.com/github-production-release-asset-2e65be/123/test?signature=abc")!))
+        XCTAssertTrue(ReleaseUpdate.isAllowedDownloadURL(URL(string: "https://release-assets.githubusercontent.com/github-production-release-asset/123/test?signature=abc")!))
+        XCTAssertFalse(ReleaseUpdate.isAllowedDownloadURL(URL(string: "https://release-assets.githubusercontent.com/unrelated/123/test?signature=abc")!))
         XCTAssertFalse(ReleaseUpdate.isAllowedDownloadURL(URL(string: "http://release-assets.githubusercontent.com/github-production-release-asset-2e65be/123/test")!))
         XCTAssertFalse(ReleaseUpdate.isAllowedDownloadURL(URL(string: "https://example.com/update.zip")!))
     }

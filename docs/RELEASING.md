@@ -44,7 +44,7 @@ The notarization wait timeout defaults to two hours per upload. Set `NOTARY_TIME
 
 ## Prepare the version
 
-Update `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`. Use three numeric marketing-version components without leading zeros and an increasing positive build number. The first public release is **1.2.0**, build **4**. The script reads both values from the plist and derives the Git tag, such as `v1.2.0`.
+Update `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`. Use three numeric marketing-version components without leading zeros and an increasing positive build number. For example, **1.2.1** uses build **5**. The script reads both values from the plist and derives the Git tag, such as `v1.2.1`.
 
 Commit the intended source changes. Review the app locally, including a short poem, a long poem, preserved stanza breaks, the controls, and login startup. The archive audit and downloaded poems are local test data and are not release assets.
 
@@ -85,11 +85,11 @@ That helper creates and verifies a plain DMG. It does **not** sign or notarize t
 
 Publishing requires a clean repository, including no untracked files outside ignored output directories. `HEAD`, the local version tag, and the tag already pushed to `grinich/poem-desktop` must all refer to the same commit. The script checks these conditions before packaging and again before publication. It neither creates nor pushes Git tags.
 
-For the first release, after committing and reviewing the source:
+After committing and reviewing the source:
 
 ```sh
-git tag -a v1.2.0 -m 'Poem Desktop 1.2.0'
-git push origin v1.2.0
+git tag -a v1.2.1 -m 'Poem Desktop 1.2.1'
+git push origin v1.2.1
 ./scripts/release.sh --publish
 ```
 
