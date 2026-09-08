@@ -293,7 +293,10 @@ final class AppUpdater {
                     if (try? String(contentsOf: receipt, encoding: .utf8)) == config.nonce { acknowledged = true; break }
                     Thread.sleep(forTimeInterval: 0.25)
                 }
-                guard acknowledged else { throw ReleaseUpdateError.invalid("The updated app did not finish starting; restoring the previous version.") }
+                guard acknowledged else {
+                    let detail = (try? String(contentsOf: transaction.appendingPathComponent("launch-error.txt"), encoding: .utf8)) ?? "No launch acknowledgment received."
+                    throw ReleaseUpdateError.invalid("The updated app did not finish starting; restoring the previous version. \(detail)")
+                }
                 try? FileManager.default.removeItem(at: transaction)
                 print("Update installed and relaunch acknowledged.")
             } catch {
@@ -334,14 +337,29 @@ final class AppUpdater {
     static func acknowledgeSuccessfulRelaunch(arguments: [String]) {
         guard let pathIndex = arguments.firstIndex(of: "--update-transaction"), arguments.count > pathIndex + 1,
               let tokenIndex = arguments.firstIndex(of: "--update-token"), arguments.count > tokenIndex + 1 else { return }
+        var validatedDirectory: URL?
         do {
             let directory = URL(fileURLWithPath: arguments[pathIndex + 1], isDirectory: true).standardizedFileURL
             let config = try readTransaction(directory)
-            guard config.nonce == arguments[tokenIndex + 1], config.version == currentVersion,
-                  config.currentPath == Bundle.main.bundleURL.resolvingSymlinksInPath().path else { return }
+            validatedDirectory = directory
+            guard config.nonce == arguments[tokenIndex + 1] else {
+                throw ReleaseUpdateError.invalid("The relaunch token did not match the transaction.")
+            }
+            guard config.version == currentVersion else {
+                throw ReleaseUpdateError.invalid("The relaunched app reports version \(currentVersion); expected \(config.version).")
+            }
+            let launchedPath = Bundle.main.bundleURL.resolvingSymlinksInPath().path
+            guard config.currentPath == launchedPath else {
+                throw ReleaseUpdateError.invalid("The relaunched app is at \(launchedPath); expected \(config.currentPath).")
+            }
             if config.loginEnabled, SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
             try config.nonce.write(to: directory.appendingPathComponent("launch-receipt"), atomically: true, encoding: .utf8)
-        } catch { NSLog("Poem Desktop update acknowledgment failed: %@", error.localizedDescription) }
+        } catch {
+            NSLog("Poem Desktop update acknowledgment failed: %@", error.localizedDescription)
+            if let directory = validatedDirectory {
+                try? error.localizedDescription.write(to: directory.appendingPathComponent("launch-error.txt"), atomically: true, encoding: .utf8)
+            }
+        }
     }
 
     private nonisolated static func readTransaction(_ directory: URL) throws -> Transaction {
