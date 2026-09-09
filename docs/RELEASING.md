@@ -48,6 +48,8 @@ Update `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.pli
 
 Commit the intended source changes. Review the app locally, including a short poem, a long poem, preserved stanza breaks, the controls, and login startup. The archive audit and downloaded poems are local test data and are not release assets.
 
+Write the changes for this version in `docs/releases/VERSION.md`, for example `docs/releases/1.2.2.md`. Packaging copies these committed notes into the GitHub release body. If no version-specific file exists, it generates a general app description.
+
 ## Prepare packages
 
 From the repository root, with the credential variables configured:

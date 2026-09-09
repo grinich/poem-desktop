@@ -55,13 +55,31 @@ enum ArchiveAudit {
                     $0.publishedAt < $1.publishedAt
             }
             guard !poems.isEmpty else { throw Failure("Archive contains no parseable poems") }
-            let configurations = [
+            var configurations = [
                 Configuration(name: "actual-default", screen: screen.frame, visible: screen.visibleFrame, scale: 1),
                 Configuration(name: "actual-larger", screen: screen.frame, visible: screen.visibleFrame, scale: 1.15),
                 Configuration(name: "actual-largest", screen: screen.frame, visible: screen.visibleFrame, scale: 1.3),
                 Configuration(name: "small-desktop", screen: NSRect(x: 0, y: 0, width: 1280, height: 800),
                               visible: NSRect(x: 0, y: 70, width: 1280, height: 705), scale: 1),
             ]
+            if arguments.contains("--all-typefaces") {
+                let sizes: [(name: String, scale: CGFloat)] = [
+                    ("smallest", 0.7), ("smaller", 0.85), ("default", 1),
+                    ("larger", 1.15), ("largest", 1.3),
+                ]
+                configurations = PoemTypeface.available.flatMap { typeface in
+                    let actual = sizes.map { size in
+                        Configuration(name: "actual-\(typeface.rawValue)-\(size.name)",
+                                      screen: screen.frame, visible: screen.visibleFrame,
+                                      scale: size.scale, typeface: typeface)
+                    }
+                    let small = Configuration(name: "small-desktop-\(typeface.rawValue)",
+                                              screen: NSRect(x: 0, y: 0, width: 1280, height: 800),
+                                              visible: NSRect(x: 0, y: 70, width: 1280, height: 705),
+                                              scale: 1, typeface: typeface)
+                    return actual + [small]
+                }
+            }
             var records: [[String: Any]] = []
             var failures: [[String: Any]] = []
             var measurements: [Measurement] = []
@@ -77,7 +95,8 @@ enum ArchiveAudit {
                     if !measurement.errors.isEmpty {
                         failures.append([
                             "url": poem.url.absoluteString, "title": poem.title,
-                            "configuration": configuration.name, "errors": measurement.errors,
+                            "configuration": configuration.name, "typeface": configuration.typeface.displayName,
+                            "errors": measurement.errors,
                         ])
                     }
                 }
@@ -86,6 +105,7 @@ enum ArchiveAudit {
                 record["blankLineCount"] = lines.filter(\.isEmpty).count
                 record["longestSourceLineCharacters"] = lines.map(\.count).max() ?? 0
                 record["widestSourceLineAt20Points"] = widestLine(lines)
+                record["widestSourceLineTypeface"] = PoemTypeface.georgia.displayName
                 record["layouts"] = layouts
                 records.append(record)
                 if (index + 1).isMultiple(of: 100) {
@@ -129,6 +149,7 @@ enum ArchiveAudit {
                 let items = measurements.filter { $0.configuration.name == configuration.name }
                 return [
                     "name": configuration.name, "fontScale": configuration.scale,
+                    "typeface": configuration.typeface.displayName,
                     "screenFrame": rect(configuration.screen), "visibleFrame": rect(configuration.visible),
                     "poemsTested": items.count, "failures": items.filter { !$0.errors.isEmpty }.count,
                     "minimumBodyFontSize": items.map(\.fontSize).min() ?? 0,
@@ -141,6 +162,7 @@ enum ArchiveAudit {
                 "generatedAt": ISO8601DateFormatter().string(from: Date()),
                 "status": allPass ? "PASS" : "FAIL",
                 "allLayoutsPass": allLayoutsPass, "annualCoverageVerified": coverageVerified,
+                "allTypefaces": arguments.contains("--all-typefaces"),
                 "method": "Actual PoemFeedParser, AppDelegate.overlayFrame, and PoemView native AppKit layout",
                 "checkedInvariants": [
                     "Every parsed source line and blank stanza line is preserved unchanged and in order",
@@ -149,6 +171,7 @@ enum ArchiveAudit {
                     "Header and body pass native text container visibility checks",
                     "Overlay is fully contained by its display and visible desktop",
                     "Exactly one desktop page; no continuation pages",
+                    "The selected typeface is used for the measured body text",
                 ],
                 "coverage": [
                     "rssFileCount": files.count, "parsedItemsBeforeDeduplication": parsedItemCount,
@@ -183,6 +206,7 @@ enum ArchiveAudit {
         let screen: NSRect
         let visible: NSRect
         let scale: CGFloat
+        var typeface: PoemTypeface = .georgia
     }
 
     private struct Measurement {
@@ -204,7 +228,7 @@ enum ArchiveAudit {
 
     private static func measure(poem: Poem, configuration: Configuration) -> Measurement {
         let frame = AppDelegate.overlayFrame(screenFrame: configuration.screen, visibleFrame: configuration.visible,
-                                             poem: poem, fontScale: configuration.scale)
+                                             poem: poem, fontScale: configuration.scale, typeface: configuration.typeface)
         let view = makeView(poem: poem, configuration: configuration, frame: frame)
         let diagnostics = view.diagnostics
         let exactSource = diagnostics.sourceLines == poem.body.components(separatedBy: "\n")
@@ -223,11 +247,15 @@ enum ArchiveAudit {
         if !withinDisplay { errors.append("Overlay extends outside visible desktop") }
         if !diagnostics.allTextVisible { errors.append("Native renderer reports hidden text") }
         if !diagnostics.textFitsContainers { errors.append("Native text container clipping") }
+        if diagnostics.bodyFontName != configuration.typeface.font(size: 20).fontName {
+            errors.append("Measured body font differs from the selected typeface")
+        }
         if !diagnostics.bodyFontSize.isFinite || diagnostics.bodyFontSize <= 0 {
             errors.append("Invalid body font size")
         }
         let report: [String: Any] = [
             "configuration": configuration.name, "fontScale": configuration.scale,
+            "typeface": configuration.typeface.displayName, "bodyFontName": diagnostics.bodyFontName,
             "passing": errors.isEmpty, "errors": errors,
             "bodyFontSize": diagnostics.bodyFontSize.isFinite ? diagnostics.bodyFontSize : 0,
             "columns": diagnostics.columnCount, "height": frame.height, "overlayFrame": rect(frame),
@@ -247,6 +275,7 @@ enum ArchiveAudit {
     private static func makeView(poem: Poem, configuration: Configuration, frame: NSRect) -> PoemView {
         let view = PoemView(frame: NSRect(origin: .zero, size: frame.size))
         view.fontScale = configuration.scale
+        view.typeface = configuration.typeface
         view.poem = poem
         return view
     }
@@ -300,11 +329,11 @@ enum ArchiveAudit {
         if !coverageErrors.isEmpty { lines.append("") }
         lines += [
             "The audit uses the production RSS parser, adaptive desktop frame, and AppKit poem renderer. It checks every parsed line and blank stanza line, unchanged and in order; one drawing frame per source line; all frames within the body and display; full header/body visibility; and exactly one page.", "",
-            "| Configuration | Font preference | Poems | Failures | Smallest body type | Tallest overlay | Most columns | Below 14 pt |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Configuration | Typeface | Font preference | Poems | Failures | Smallest body type | Tallest overlay | Most columns | Below 14 pt |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for summary in summaries {
-            lines.append("| \(cell(summary["name"])) | \(decimal(summary["fontScale"]))× | \(cell(summary["poemsTested"])) | \(cell(summary["failures"])) | \(decimal(summary["minimumBodyFontSize"])) pt | \(decimal(summary["maximumOverlayHeight"])) pt | \(cell(summary["maximumColumns"])) | \(cell(summary["below14PointReadabilityThreshold"])) |")
+            lines.append("| \(cell(summary["name"])) | \(cell(summary["typeface"])) | \(decimal(summary["fontScale"]))× | \(cell(summary["poemsTested"])) | \(cell(summary["failures"])) | \(decimal(summary["minimumBodyFontSize"])) pt | \(decimal(summary["maximumOverlayHeight"])) pt | \(cell(summary["maximumColumns"])) | \(cell(summary["below14PointReadabilityThreshold"])) |")
         }
         lines += ["", "The 1280 × 800 case reserves 70 points below for the Dock and 25 points above for the menu bar. Actual-display cases use the attached screen's real visible frame. Font sizes below 14 points are recorded separately as a readability contingency; they do not imply missing or clipped text.", "", "## Most demanding rendered examples", ""]
         for example in examples {

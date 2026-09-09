@@ -28,9 +28,11 @@ Release builds check for app updates daily through [GitHub Releases](https://git
 
 ## Make it comfortable
 
-Choose **Comfortable**, **Larger**, or **Largest** text, and turn on **Soft paper backing** if your wallpaper needs a little contrast. The controls also let you refresh, hide the poem, open its original page, or quit.
+Use the **Text size** dropdown to choose **Smallest**, **Smaller**, **Comfortable**, **Larger**, or **Largest**. Changes appear immediately and are remembered when you restart. Turn on **Soft paper backing** if your wallpaper needs a little contrast. The controls also let you refresh, hide the poem, open its original page, or quit.
 
-Poems use Georgia, with the title, author, and publication date above the text. Original verse lines and blank stanza breaks stay intact. When a poem needs columns, read down each column, then continue to the next one on the right.
+The **Typeface** dropdown offers Georgia, Palatino, Baskerville, Times New Roman, and Iowan Old Style when installed on your Mac. A live preview beneath the dropdowns shows the selected typeface at your chosen text size. Your typeface applies to the title, author, poem, and larger reader, and is remembered between launches. Georgia is the default.
+
+Original verse lines and blank stanza breaks stay intact. When a poem needs columns, read down each column, then continue to the next one on the right.
 
 Short poems sit in the upper third of the desktop. Longer poems use more vertical space before the type gets smaller. The entire poem stays on a single desktop, without wrapping verse lines or splitting into pages.
 
@@ -87,7 +89,9 @@ To test current source formatting, save the public feed to a local XML file, set
 
 ### A year of poems
 
-The September 7, 2025–September 7, 2026 public archive was checked through the production parser and renderer: **230 poems, 920 layouts, no clipping, missing lines, wrapping, or pagination**. Checks included all three text preferences on a 1470 × 956 desktop and the default preference on a 1280 × 800 desktop. Two poems on the larger display and three on the smaller display needed type below 14 points, for which **Read larger** is available.
+The September 7, 2025–September 7, 2026 public archive was checked through the production parser and renderer: **230 poems, 920 layouts, no clipping, missing lines, wrapping, or pagination**. Checks included Comfortable, Larger, and Largest on a 1470 × 956 desktop and the default preference on a 1280 × 800 desktop. Two poems on the larger display and three on the smaller display needed type below 14 points, for which **Read larger** is available.
+
+An additional audit checked all five typefaces at all five text sizes on the main display, plus each typeface at the default size on the smaller display: **6,900 layouts across the same 230 poems, with no overflow or changed line breaks**. Add `--all-typefaces` to the audit command below to reproduce this expanded check.
 
 Reproduce the audit with:
 

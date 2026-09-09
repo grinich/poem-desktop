@@ -8,6 +8,7 @@ final class PoemReader {
     struct Diagnostics {
         let body: String
         let bodyFontSize: CGFloat
+        let bodyFontName: String
         let allCharactersLaidOut: Bool
         let sourceLineCount: Int
         let renderedLineCount: Int
@@ -49,15 +50,15 @@ final class PoemReader {
         window.contentView = scrollView
     }
 
-    func show(_ poem: Poem) {
-        prepare(poem)
+    func show(_ poem: Poem, typeface: PoemTypeface = .georgia) {
+        prepare(poem, typeface: typeface)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func prepare(_ poem: Poem) {
+    func prepare(_ poem: Poem, typeface: PoemTypeface = .georgia) {
         window.title = poem.title
-        let bodyFont = NSFont(name: "Georgia", size: 21) ?? NSFont.systemFont(ofSize: 21)
+        let bodyFont = typeface.font(size: 21)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byClipping
         paragraph.lineSpacing = 3
@@ -65,11 +66,11 @@ final class PoemReader {
             .font: bodyFont, .foregroundColor: NSColor.black, .paragraphStyle: paragraph
         ]
         let content = NSMutableAttributedString(string: poem.title + "\n", attributes: [
-            .font: NSFont(name: "Georgia", size: 28) ?? bodyFont,
+            .font: typeface.font(size: 28),
             .foregroundColor: NSColor.black, .paragraphStyle: paragraph
         ])
         content.append(NSAttributedString(string: poem.author + "\n\n", attributes: [
-            .font: NSFont(name: "Georgia-Italic", size: 17) ?? bodyFont,
+            .font: typeface.font(size: 17, italic: true),
             .foregroundColor: NSColor.black, .paragraphStyle: paragraph
         ]))
         bodyRange = NSRange(location: content.length, length: (poem.body as NSString).length)
@@ -96,7 +97,8 @@ final class PoemReader {
     var diagnostics: Diagnostics {
         guard let storage = textView.textStorage, let manager = textView.layoutManager,
               let container = textView.textContainer else {
-            return Diagnostics(body: "", bodyFontSize: 0, allCharactersLaidOut: false, sourceLineCount: 0, renderedLineCount: 0)
+            return Diagnostics(body: "", bodyFontSize: 0, bodyFontName: "", allCharactersLaidOut: false,
+                               sourceLineCount: 0, renderedLineCount: 0)
         }
         manager.ensureLayout(for: container)
         let glyphs = manager.glyphRange(for: container)
@@ -106,7 +108,10 @@ final class PoemReader {
         // AppKit keeps an extra trailing empty line outside the glyph range.
         if storage.string.hasSuffix("\n") { fragments += 1 }
         let used = manager.usedRect(for: container)
-        return Diagnostics(body: storage.attributedSubstring(from: bodyRange).string, bodyFontSize: 21,
+        let font = bodyRange.length > 0
+            ? storage.attribute(.font, at: bodyRange.location, effectiveRange: nil) as? NSFont : nil
+        return Diagnostics(body: storage.attributedSubstring(from: bodyRange).string, bodyFontSize: font?.pointSize ?? 0,
+                           bodyFontName: font?.fontName ?? "",
                            allCharactersLaidOut: NSMaxRange(characters) == storage.length &&
                             used.width <= container.size.width + 0.5 && used.height <= container.size.height + 0.5,
                            sourceLineCount: expectedLineCount, renderedLineCount: fragments)

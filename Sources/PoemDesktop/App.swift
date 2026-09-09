@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var visibilityButton: NSButton?
     private var updateButton: NSButton?
     private var updateLabel: NSTextField?
+    private var typographyPreview: TypographyPreview?
     private lazy var updater = AppUpdater()
     private var refreshTimer: Timer?
     private var retryTimer: Timer?
@@ -49,6 +50,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var status = "Checking for the latest poem…"
     private var loginIssue: String?
     private let defaults = UserDefaults.standard
+    private static let textSizes: [(title: String, scale: Double)] = [
+        ("Smallest", 0.7), ("Smaller", 0.85), ("Comfortable", 1),
+        ("Larger", 1.15), ("Largest", 1.3)
+    ]
+    private let typefaces = PoemTypeface.available
+    private var selectedTypeface: PoemTypeface {
+        let saved = PoemTypeface(rawValue: defaults.string(forKey: "typeface") ?? "") ?? .georgia
+        return typefaces.contains(saved) ? saved : (typefaces.first ?? .georgia)
+    }
     private let args = ProcessInfo.processInfo.arguments
     private lazy var service = PoemService(cacheDirectory: Self.supportDirectory)
 
@@ -170,13 +180,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // screens.first is the menu-bar display; NSScreen.main follows the focused window.
         guard let screen = NSScreen.screens.first else { return }
         let fontScale = CGFloat(defaults.object(forKey: "fontScale") as? Double ?? 1)
+        let typeface = selectedTypeface
         let frame = Self.overlayFrame(screenFrame: screen.frame, visibleFrame: screen.visibleFrame,
-                                      poem: latestPoem, fontScale: fontScale)
+                                      poem: latestPoem, fontScale: fontScale, typeface: typeface)
         let window = overlay ?? DesktopWindow(frame: frame)
         let view = poemView ?? PoemView(frame: NSRect(origin: .zero, size: frame.size))
         window.setFrame(frame, display: false)
         view.frame = NSRect(origin: .zero, size: frame.size)
         view.fontScale = fontScale
+        view.typeface = typeface
         view.usesReadingVeil = defaults.bool(forKey: "readingVeil")
         view.poem = latestPoem
         window.contentView = view
@@ -186,13 +198,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     static func overlayFrame(screenFrame: NSRect, visibleFrame: NSRect,
-                             poem: Poem? = nil, fontScale: CGFloat = 1) -> NSRect {
+                             poem: Poem? = nil, fontScale: CGFloat = 1,
+                             typeface: PoemTypeface = .georgia) -> NSRect {
         let width = min(1700, screenFrame.width - 112)
         let top = min(screenFrame.maxY - 36, visibleFrame.maxY - 14)
         let targetHeight = max(130, top - (screenFrame.maxY - screenFrame.height / 3))
         let maximumHeight = max(targetHeight, top - max(screenFrame.minY + 40, visibleFrame.minY + 20))
         let height = PoemView.preferredHeight(for: poem, width: width, targetHeight: targetHeight,
-                                             maximumHeight: maximumHeight, fontScale: fontScale)
+                                             maximumHeight: maximumHeight, fontScale: fontScale, typeface: typeface)
         return NSRect(x: screenFrame.midX - width / 2, y: top - height, width: width, height: height)
     }
 
@@ -243,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeSettingsWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 530),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 680),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Poem Desktop"
         window.isReleasedWhenClosed = false
@@ -277,13 +290,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sizeRow.spacing = 16
         sizeRow.addArrangedSubview(NSTextField(labelWithString: "Text size"))
         let size = NSPopUpButton()
-        size.addItems(withTitles: ["Comfortable", "Larger", "Largest"])
-        let scale = defaults.object(forKey: "fontScale") as? Double ?? 1
-        size.selectItem(at: scale > 1.2 ? 2 : (scale > 1.05 ? 1 : 0))
+        size.setAccessibilityLabel("Text size")
+        size.addItems(withTitles: Self.textSizes.map(\.title))
+        let savedScale = defaults.object(forKey: "fontScale") as? Double ?? 1
+        let scale = savedScale.isFinite ? savedScale : 1
+        let selected = Self.textSizes.indices.min {
+            abs(Self.textSizes[$0].scale - scale) < abs(Self.textSizes[$1].scale - scale)
+        } ?? 2
+        size.selectItem(at: selected)
         size.target = self
         size.action = #selector(changeSize(_:))
         sizeRow.addArrangedSubview(size)
         stack.addArrangedSubview(sizeRow)
+
+        let typefaceRow = NSStackView()
+        typefaceRow.orientation = .horizontal
+        typefaceRow.spacing = 16
+        typefaceRow.addArrangedSubview(NSTextField(labelWithString: "Typeface"))
+        let typeface = NSPopUpButton()
+        typeface.setAccessibilityLabel("Typeface")
+        for choice in typefaces {
+            typeface.addItem(withTitle: choice.displayName)
+            typeface.lastItem?.attributedTitle = NSAttributedString(
+                string: choice.displayName, attributes: [.font: choice.font(size: 15)])
+        }
+        typeface.selectItem(at: typefaces.firstIndex(of: selectedTypeface) ?? 0)
+        typeface.target = self
+        typeface.action = #selector(changeTypeface(_:))
+        typefaceRow.addArrangedSubview(typeface)
+        stack.addArrangedSubview(typefaceRow)
+
+        let preview = TypographyPreview(frame: .zero)
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        typographyPreview = preview
+        stack.addArrangedSubview(preview)
+        NSLayoutConstraint.activate([
+            preview.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            preview.heightAnchor.constraint(equalToConstant: 82)
+        ])
+        updateTypographyPreview()
 
         let actions = NSStackView()
         actions.orientation = .horizontal
@@ -367,16 +412,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         poemView?.usesReadingVeil = enabled
     }
     @objc private func changeSize(_ sender: NSPopUpButton) {
-        let scale = [1.0, 1.15, 1.3][sender.indexOfSelectedItem]
+        guard Self.textSizes.indices.contains(sender.indexOfSelectedItem) else { return }
+        let scale = Self.textSizes[sender.indexOfSelectedItem].scale
         defaults.set(scale, forKey: "fontScale")
         rebuildOverlay()
+        updateTypographyPreview()
+        updateStatus()
+    }
+    @objc private func changeTypeface(_ sender: NSPopUpButton) {
+        guard typefaces.indices.contains(sender.indexOfSelectedItem) else { return }
+        defaults.set(typefaces[sender.indexOfSelectedItem].rawValue, forKey: "typeface")
+        rebuildOverlay()
+        updateTypographyPreview()
+        if let poem = latestPoem { reader?.prepare(poem, typeface: selectedTypeface) }
+        updateStatus()
+    }
+    private func updateTypographyPreview() {
+        let scale = CGFloat(defaults.object(forKey: "fontScale") as? Double ?? 1)
+        typographyPreview?.configure(typeface: selectedTypeface, fontSize: PoemView.preferredFontSize(scale))
     }
     @objc private func refreshNow() { refresh(force: true) }
     @objc private func checkForUpdates() { updater.checkManually() }
     @objc private func openReader() {
         guard let poem = latestPoem else { return }
         if reader == nil { reader = PoemReader() }
-        reader?.show(poem)
+        reader?.show(poem, typeface: selectedTypeface)
     }
     @objc private func openSource() {
         NSWorkspace.shared.open(latestPoem?.url ?? URL(string: "https://apoemaday.tumblr.com/")!)

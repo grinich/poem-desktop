@@ -52,6 +52,10 @@ enum SmokeTest {
                 ("laptop", NSSize(width: 1168, height: 224), poem, 1),
                 ("desktop", NSSize(width: 1588, height: 432), poem, 1),
                 ("short", NSSize(width: 1168, height: 224), samplePoem(lines: 4), 1),
+                ("smallest", NSSize(width: 1168, height: 224), poem, 0.7),
+                ("smaller", NSSize(width: 1168, height: 224), poem, 0.85),
+                ("smallest-short", NSSize(width: 1168, height: 224), samplePoem(lines: 4), 0.7),
+                ("smaller-short", NSSize(width: 1168, height: 224), samplePoem(lines: 4), 0.85),
                 ("long", NSSize(width: 1168, height: 224), samplePoem(lines: 180), 1),
                 ("larger", NSSize(width: 1168, height: 224), poem, 1.3),
                 ("long-header", NSSize(width: 1168, height: 224), unusualHeader, 1.3),
@@ -69,6 +73,9 @@ enum SmokeTest {
                 if name == "laptop" || name == "desktop" || name == "short" {
                     try check(d.bodyFontSize >= 18, "\(name): comfortable text size")
                 }
+                if name == "smallest-short" || name == "smaller-short" {
+                    try check(abs(d.bodyFontSize - 20 * scale) < 0.01, "\(name): respects the smaller text preference")
+                }
                 if name == "extreme-line" {
                     try check(d.usedEmergencyFit && testView.needsLargerReadingView, "Emergency full-canvas fallback is active")
                 }
@@ -84,6 +91,56 @@ enum SmokeTest {
                 try check(d.renderedLineCount == d.sourceLineCount, "Reader does not wrap original lines")
             }
             report.append("Overflow contingency: full-canvas fallback and 21-point reader pass extreme-line and 1000-line checks")
+
+            // Reuse the same view so changing a typeface must also discard its
+            // cached measurement. The short poem fits every font at exactly 20 pt.
+            let typefaceView = PoemView(frame: NSRect(x: 0, y: 0, width: 1358, height: 840))
+            let shortPoem = samplePoem(lines: 4)
+            typefaceView.poem = shortPoem
+            _ = typefaceView.diagnostics
+            for typeface in PoemTypeface.allCases {
+                typefaceView.typeface = typeface
+                let changed = typefaceView.diagnostics
+                let expectedFont = typeface.font(size: 20)
+                try check(changed.bodyFontName == expectedFont.fontName,
+                          "\(typeface.displayName): changing typeface updates the cached layout font")
+                try check(abs(changed.bodyFontSize - 20) < 0.01,
+                          "\(typeface.displayName): changing typeface preserves the size preference")
+                let firstLine = shortPoem.body.components(separatedBy: "\n")[0]
+                let expectedWidth = (firstLine as NSString).size(withAttributes: [.font: expectedFont]).width
+                try check(abs((changed.lineFrames.first?.width ?? 0) - expectedWidth) < 0.01,
+                          "\(typeface.displayName): line width is measured with the selected font")
+                try validate(view: typefaceView, poem: shortPoem, label: "Changed to \(typeface.displayName)")
+
+                for (name, item) in [("normal", poem), ("long", samplePoem(lines: 180)),
+                                     ("extreme-line", extraordinaryLine)] {
+                    let height = PoemView.preferredHeight(for: item, width: 1168, targetHeight: 224,
+                                                         maximumHeight: 840, fontScale: 1, typeface: typeface)
+                    let fontView = PoemView(frame: NSRect(x: 0, y: 0, width: 1168, height: height))
+                    fontView.poem = item
+                    fontView.typeface = typeface
+                    let d = fontView.diagnostics
+                    let label = "\(typeface.displayName) \(name)"
+                    try check(d.bodyFontName == expectedFont.fontName, "\(label): uses selected typeface")
+                    try validate(view: fontView, poem: item, label: label)
+                    if name == "extreme-line" {
+                        try check(d.usedEmergencyFit && fontView.needsLargerReadingView,
+                                  "\(label): retains the emergency full-poem fallback")
+                    }
+                    if name == "normal" {
+                        try render(view: fontView, to: directory.appendingPathComponent("typeface-\(typeface.rawValue).png"))
+                    }
+                    reader.prepare(item, typeface: typeface)
+                    let reading = reader.diagnostics
+                    try check(reading.bodyFontName == typeface.font(size: 21).fontName,
+                              "\(label): reader uses the selected typeface")
+                    try check(reading.body == item.body && reading.allCharactersLaidOut && reading.bodyFontSize == 21,
+                              "\(label): reader shows the complete poem at comfortable size")
+                    try check(reading.renderedLineCount == reading.sourceLineCount,
+                              "\(label): reader preserves every original line break")
+                }
+                report.append("\(typeface.displayName): PASS · selected font measurements · cached layout changes · full normal, long, and extreme poems · matching reader without wrapping")
+            }
             if let path = value(after: "--feed-file") {
                 let poems = try PoemFeedParser().parse(Data(contentsOf: URL(fileURLWithPath: path)))
                 for (index, item) in poems.enumerated() {

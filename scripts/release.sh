@@ -173,7 +173,12 @@ notarize "$RELEASE_WORK/PoemDesktop.dmg" dmg
   cd "$RELEASE_WORK"
   /usr/bin/shasum -a 256 PoemDesktop.app.zip PoemDesktop.dmg > SHA256SUMS
 )
-cat > "$RELEASE_WORK/RELEASE_NOTES.md" <<NOTES
+RELEASE_NOTES_SOURCE="$PROJECT_DIR/docs/releases/$VERSION.md"
+if [[ -f "$RELEASE_NOTES_SOURCE" ]]; then
+  [[ ! -L "$RELEASE_NOTES_SOURCE" && -s "$RELEASE_NOTES_SOURCE" ]] || fail 'Version-specific release notes must be a nonempty regular file, not a symlink.'
+  /bin/cp "$RELEASE_NOTES_SOURCE" "$RELEASE_WORK/RELEASE_NOTES.md"
+else
+  cat > "$RELEASE_WORK/RELEASE_NOTES.md" <<NOTES
 Poem Desktop $VERSION puts the latest poem from A Poem A Day on your Mac's wallpaper in quiet, black serif type.
 
 - The complete poem stays on one desktop with its original line and stanza breaks.
@@ -187,6 +192,7 @@ Download **PoemDesktop.dmg**, open it, and drag **Poem Desktop.app** to **Applic
 
 Version $VERSION · build $BUILD_NUMBER
 NOTES
+fi
 
 for artifact in PoemDesktop.app.zip PoemDesktop.dmg SHA256SUMS RELEASE_NOTES.md; do
   [[ ! -L "$DIST_DIR/$artifact" && ! -d "$DIST_DIR/$artifact" ]] || fail "Refusing to replace a symlink or directory at dist/$artifact."

@@ -8,6 +8,7 @@ final class PoemView: NSView {
         let pageCount: Int
         let columnCount: Int
         let bodyFontSize: CGFloat
+        let bodyFontName: String
         let sourceLines: [String]
         let renderedLines: [String]
         let lineFrames: [NSRect]
@@ -19,6 +20,7 @@ final class PoemView: NSView {
 
     var poem: Poem? { didSet { invalidatePoemLayout() } }
     var fontScale: CGFloat = 1 { didSet { invalidatePoemLayout() } }
+    var typeface: PoemTypeface = .georgia { didSet { invalidatePoemLayout() } }
     var usesReadingVeil = false { didSet { needsDisplay = true } }
 
     override var isFlipped: Bool { true }
@@ -54,6 +56,8 @@ final class PoemView: NSView {
             pageCount: 1,
             columnCount: layout?.partition.ranges.count ?? 0,
             bodyFontSize: (layout?.fontSize ?? Self.preferredFontSize(fontScale)) * scale,
+            bodyFontName: layout?.lines.first(where: { $0.length > 0 })
+                .flatMap { $0.attribute(.font, at: 0, effectiveRange: nil) as? NSFont }?.fontName ?? "",
             sourceLines: sourceLines,
             renderedLines: renderedLines,
             lineFrames: frames,
@@ -66,11 +70,12 @@ final class PoemView: NSView {
 
     /// Extend below the original desktop strip before sacrificing the preferred type size.
     static func preferredHeight(for poem: Poem?, width: CGFloat, targetHeight: CGFloat,
-                                maximumHeight: CGFloat, fontScale: CGFloat) -> CGFloat {
+                                maximumHeight: CGFloat, fontScale: CGFloat,
+                                typeface: PoemTypeface = .georgia) -> CGFloat {
         let maximum = max(1, maximumHeight)
         let target = min(maximum, max(1, targetHeight))
         guard let poem, width > 2 * contentInset else { return target }
-        let measured = measure(poem: poem, width: width, fontSize: preferredFontSize(fontScale))
+        let measured = measure(poem: poem, width: width, fontSize: preferredFontSize(fontScale), typeface: typeface)
         guard let availableRows = measured.rowCapacity(height: maximum),
               partition(widths: measured.widths, lines: measured.sourceLines,
                         capacity: availableRows, availableWidth: measured.bodyWidth,
@@ -183,14 +188,8 @@ final class PoemView: NSView {
         needsDisplay = true
     }
 
-    private static func preferredFontSize(_ scale: CGFloat) -> CGFloat {
-        min(30, max(16, 20 * (scale.isFinite ? scale : 1)))
-    }
-
-    private static func serifFont(size: CGFloat, italic: Bool = false) -> NSFont {
-        NSFont(name: italic ? "Georgia-Italic" : "Georgia", size: size) ??
-            NSFont(name: italic ? "TimesNewRomanPS-ItalicMT" : "TimesNewRomanPSMT", size: size) ??
-            NSFont.systemFont(ofSize: size)
+    static func preferredFontSize(_ scale: CGFloat) -> CGFloat {
+        min(30, max(14, 20 * (scale.isFinite ? scale : 1)))
     }
 
     private func rebuildLayoutIfNeeded() {
@@ -201,7 +200,7 @@ final class PoemView: NSView {
               bounds.height > 2 * Self.contentInset else { return }
 
         let preferredSize = Self.preferredFontSize(fontScale)
-        let preferred = Self.measure(poem: poem, width: bounds.width, fontSize: preferredSize)
+        let preferred = Self.measure(poem: poem, width: bounds.width, fontSize: preferredSize, typeface: typeface)
         if let result = Self.makeLayout(preferred, height: bounds.height),
            Self.fits(result, in: bounds.size) {
             layout = result
@@ -215,7 +214,7 @@ final class PoemView: NSView {
         var best: TextLayout?
         for _ in 0..<25 {
             let candidateSize = (lower + upper) / 2
-            let candidate = Self.measure(poem: poem, width: bounds.width, fontSize: candidateSize)
+            let candidate = Self.measure(poem: poem, width: bounds.width, fontSize: candidateSize, typeface: typeface)
             if let result = Self.makeLayout(candidate, height: bounds.height),
                Self.fits(result, in: bounds.size) {
                 lower = candidateSize
@@ -230,7 +229,7 @@ final class PoemView: NSView {
         if let best, best.fontSize >= 1 {
             layout = best
         } else {
-            layout = Self.emergencyLayout(poem: poem, size: bounds.size, fontSize: preferredSize)
+            layout = Self.emergencyLayout(poem: poem, size: bounds.size, fontSize: preferredSize, typeface: typeface)
         }
     }
 
@@ -248,10 +247,11 @@ final class PoemView: NSView {
         }
     }
 
-    private static func emergencyLayout(poem: Poem, size: NSSize, fontSize: CGFloat) -> TextLayout? {
-        let natural = measure(poem: poem, width: size.width, fontSize: fontSize)
+    private static func emergencyLayout(poem: Poem, size: NSSize, fontSize: CGFloat,
+                                        typeface: PoemTypeface) -> TextLayout? {
+        let natural = measure(poem: poem, width: size.width, fontSize: fontSize, typeface: typeface)
         let canvasWidth = max(size.width, ceil((natural.widths.max() ?? 0) + 2 * contentInset + 1))
-        let complete = measure(poem: poem, width: canvasWidth, fontSize: fontSize)
+        let complete = measure(poem: poem, width: canvasWidth, fontSize: fontSize, typeface: typeface)
         let canvasHeight = ceil(complete.header.bodyTop + CGFloat(complete.lines.count) * complete.lineAdvance + contentInset + 1)
         guard canvasWidth.isFinite, canvasHeight.isFinite, canvasWidth > 0, canvasHeight > 0,
               var result = makeLayout(complete, height: canvasHeight) else { return nil }
@@ -260,10 +260,10 @@ final class PoemView: NSView {
         return fits(result, in: size) ? result : nil
     }
 
-    private static func measure(poem: Poem, width: CGFloat, fontSize: CGFloat) -> MeasuredPoem {
+    private static func measure(poem: Poem, width: CGFloat, fontSize: CGFloat, typeface: PoemTypeface) -> MeasuredPoem {
         let scale = fontSize / 20
         let bodyWidth = max(1, width - 2 * contentInset)
-        let font = serifFont(size: fontSize)
+        let font = typeface.font(size: fontSize)
         let sourceLines = poem.body.components(separatedBy: "\n")
         let lineStyle = NSMutableParagraphStyle()
         lineStyle.lineBreakMode = .byClipping
@@ -283,20 +283,20 @@ final class PoemView: NSView {
             sourceLines: sourceLines, lines: lines,
             widths: sizes.map(\.width), fontSize: fontSize,
             lineAdvance: lineAdvance, columnGap: 34 * scale, bodyWidth: bodyWidth,
-            header: makeHeader(poem: poem, width: bodyWidth, fontSize: fontSize)
+            header: makeHeader(poem: poem, width: bodyWidth, fontSize: fontSize, typeface: typeface)
         )
     }
 
-    private static func makeHeader(poem: Poem, width: CGFloat, fontSize: CGFloat) -> Header {
+    private static func makeHeader(poem: Poem, width: CGFloat, fontSize: CGFloat, typeface: PoemTypeface) -> Header {
         let scale = fontSize / 20
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         let title = NSAttributedString(string: poem.title, attributes: [
-            .font: serifFont(size: 25 * scale), .foregroundColor: NSColor.black,
+            .font: typeface.font(size: 25 * scale), .foregroundColor: NSColor.black,
             .paragraphStyle: paragraph,
         ])
         let author = NSAttributedString(string: poem.author, attributes: [
-            .font: serifFont(size: 15 * scale, italic: true),
+            .font: typeface.font(size: 15 * scale, italic: true),
             .foregroundColor: NSColor.black.withAlphaComponent(0.8), .paragraphStyle: paragraph,
         ])
         let source = NSAttributedString(
@@ -462,10 +462,10 @@ final class PoemView: NSView {
 
     private func drawWaitingPlaceholder() {
         NSAttributedString(string: "A poem for your day", attributes: [
-            .font: Self.serifFont(size: 25), .foregroundColor: NSColor.black,
+            .font: typeface.font(size: 25), .foregroundColor: NSColor.black,
         ]).draw(at: NSPoint(x: Self.contentInset, y: 8))
         NSAttributedString(string: "Fetching the latest poem from A Poem A Day…", attributes: [
-            .font: Self.serifFont(size: 16, italic: true),
+            .font: typeface.font(size: 16, italic: true),
             .foregroundColor: NSColor.black.withAlphaComponent(0.7),
         ]).draw(at: NSPoint(x: Self.contentInset, y: 46))
     }
